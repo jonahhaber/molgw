@@ -39,9 +39,6 @@ subroutine setup_hartree(p_matrix,hartree_ao,ehartree)
  integer(kind=int8)   :: iint
  integer              :: index_ij,index_kl,stride
  real(dp)             :: fact_ij,fact_kl
-#if defined(_OPENMP)
- integer,external :: OMP_GET_NUM_THREADS,OMP_GET_THREAD_NUM
-#endif
 !=====
 
  call start_clock(timing_hartree)
@@ -133,7 +130,7 @@ subroutine setup_hartree_oneshell(basis,p_matrix,hartree_ao,ehartree)
  logical,allocatable     :: skip_shellpair(:)
  real(dp)                :: cost(nshellpair)
  real(dp)                :: cost2(nshellpair)
- real(dp)                :: load(nproc_world)
+ real(dp)                :: load(world%nproc)
  integer                 :: shellpair_cpu(nshellpair)
  logical                 :: mask(nshellpair)
 !=====
@@ -195,8 +192,8 @@ subroutine setup_hartree_oneshell(basis,p_matrix,hartree_ao,ehartree)
    nk = number_basis_function_am( basis%gaussian_type , basis%shell(kshell)%am )
    nl = number_basis_function_am( basis%gaussian_type , basis%shell(lshell)%am )
 
-   !if( MODULO(klshellpair,nproc_world) /= rank_world ) cycle
-   if( shellpair_cpu(klshellpair) - 1 /= rank_world ) cycle
+   !if( MODULO(klshellpair,world%nproc) /= world%rank ) cycle
+   if( shellpair_cpu(klshellpair) - 1 /= world%rank ) cycle
 
    if( skip_shellpair(klshellpair) ) cycle
 
@@ -263,7 +260,7 @@ subroutine setup_hartree_oneshell(basis,p_matrix,hartree_ao,ehartree)
 
  hartree_ao(:,:) = hartree_ao(:,:) + TRANSPOSE( hartree_ao(:,:) )
 
- call xsum_world(hartree_ao)
+ call world%sum(hartree_ao)
 
  call dump_out_matrix(.FALSE.,'=== Hartree contribution ===',hartree_ao)
 
@@ -316,18 +313,12 @@ subroutine setup_hartree_ri(p_matrix,hartree_ao,ehartree)
 
  select type(p_matrix)
  type is(real(dp))
-   !$OMP PARALLEL PRIVATE(kbf,lbf)
-   !$OMP DO
    do ipair=1,npair
      kbf = index_basis(1,ipair)
      lbf = index_basis(2,ipair)
      pmat(ipair) = SUM(p_matrix(kbf,lbf,:)) * 2.0_dp
    enddo
-   !$OMP END DO
-   !$OMP END PARALLEL
  type is(complex(dp))
-   !$OMP PARALLEL PRIVATE(kbf,lbf)
-   !$OMP DO
    do ipair=1,npair
      kbf = index_basis(1,ipair)
      lbf = index_basis(2,ipair)
@@ -335,14 +326,13 @@ subroutine setup_hartree_ri(p_matrix,hartree_ao,ehartree)
      ! only the real part survives
      pmat(ipair) = SUM(p_matrix(kbf,lbf,:)%re) * 2.0_dp
    enddo
-   !$OMP END DO
-   !$OMP END PARALLEL
  end select
 
  ! X_P = \sum_{\alpha \beta} P_{\alpha \beta} * ( \alpha \beta | P )
  call DGEMV('T',npair,nauxil_3center,1.0d0,eri_3center,npair,pmat,1,0.0d0,x_vector,1)
  ! v_H_{alpha beta} = \sum_P ( alpha beta | P ) * X_P
  call DGEMV('N',npair,nauxil_3center,1.0d0,eri_3center,npair,x_vector,1,0.0d0,pmat,1)
+
  !$OMP PARALLEL PRIVATE(kbf,lbf)
  !$OMP DO
  do ipair=1,npair
@@ -362,8 +352,8 @@ subroutine setup_hartree_ri(p_matrix,hartree_ao,ehartree)
 
  !
  ! Sum up the different contribution from different procs
- call xsum_world(hartree_ao)
- hartree_ao(:,:) = hartree_ao(:,:) / REAL(nproc_ortho,dp)
+ call world%sum(hartree_ao)
+ hartree_ao(:,:) = hartree_ao(:,:) / REAL(ortho%nproc,dp)
 
  call dump_out_matrix(.FALSE.,'=== Hartree contribution ===',hartree_ao)
 
@@ -387,7 +377,7 @@ end subroutine setup_hartree_ri
 ! rho(r) = \sum_I  \phi_I(r) R_I
 !
 ! From the resolution-of-the-identity on the Coulomb metric
-! R_I = \sum_J \sum_{\alpha\beta} ( I | 1/r12 | J )^{-1} (\alpha\beta | 1/r12 | J ) P_{\alpha\beta}
+! R_I = \sum_J \sum_{\alpha\beta}  P_{\alpha\beta} (\alpha\beta | 1/r12 | J ) ( I | 1/r12 | J )^{-1}
 !
 !=========================================================================
 subroutine calculate_density_auxilbasis(p_matrix,rho_coeff)
@@ -427,18 +417,12 @@ subroutine calculate_density_auxilbasis(p_matrix,rho_coeff)
 
    select type(p_matrix)
    type is(real(dp))
-     !$OMP PARALLEL PRIVATE(kbf,lbf)
-     !$OMP DO
      do ipair=1,npair
        kbf = index_basis(1,ipair)
        lbf = index_basis(2,ipair)
        pmat(ipair) = p_matrix(kbf,lbf,ispin) * 2.0_dp
      enddo
-     !$OMP END DO
-     !$OMP END PARALLEL
    type is(complex(dp))
-     !$OMP PARALLEL PRIVATE(kbf,lbf)
-     !$OMP DO
      do ipair=1,npair
        kbf = index_basis(1,ipair)
        lbf = index_basis(2,ipair)
@@ -446,8 +430,6 @@ subroutine calculate_density_auxilbasis(p_matrix,rho_coeff)
        ! only the real part survives
        pmat(ipair) = p_matrix(kbf,lbf,ispin)%re * 2.0_dp
      enddo
-     !$OMP END DO
-     !$OMP END PARALLEL
    end select
 
    ! X_J = \sum_{\alpha \beta} P_{\alpha \beta} * ( \alpha \beta | J )
@@ -458,7 +440,7 @@ subroutine calculate_density_auxilbasis(p_matrix,rho_coeff)
 
  enddo
 
- call xsum_world(rho_coeff)
+ call world%sum(rho_coeff)
 
  deallocate(x_vector,pmat)
 
@@ -472,7 +454,7 @@ end subroutine calculate_density_auxilbasis
 subroutine setup_hartree_genuine_ri(p_matrix,rho_coeff,hartree_ao,ehartree)
  implicit none
  class(*),intent(in)  :: p_matrix(:,:,:)
- real(dp),intent(out) :: rho_coeff(:,:)
+ real(dp),intent(in)  :: rho_coeff(:,:)
  real(dp),intent(out) :: hartree_ao(:,:)
  real(dp),intent(out) :: ehartree
  !=====
@@ -486,7 +468,7 @@ subroutine setup_hartree_genuine_ri(p_matrix,rho_coeff,hartree_ao,ehartree)
  real(dp),allocatable :: rho_coeff_local_nospin(:)
  !=====
 
- if( nproc_ortho > 1 ) call die('setup_hartree_genuine_ri: ortho-parallelization not coded')
+ if( ortho%nproc > 1 ) call die('setup_hartree_genuine_ri: ortho-parallelization not coded')
 
  nbf = SIZE(hartree_ao(:,:),DIM=1)
 
@@ -535,7 +517,7 @@ subroutine setup_hartree_genuine_ri(p_matrix,rho_coeff,hartree_ao,ehartree)
 
  !
  ! Sum up the different contribution from different procs
- call xsum_world(hartree_ao)
+ call world%sum(hartree_ao)
 
  call dump_out_matrix(.FALSE.,'=== Hartree contribution ===',hartree_ao)
 
@@ -564,9 +546,6 @@ subroutine setup_exchange(p_matrix,exchange_ao,eexchange)
  integer              :: ibf,jbf,kbf,lbf,ispin
  integer(kind=int8)   :: iint
  integer              :: index_ik,index_lj,stride
-#if defined(_OPENMP)
- integer,external :: OMP_GET_NUM_THREADS,OMP_GET_THREAD_NUM
-#endif
 !=====
 
  call start_clock(timing_exchange)
@@ -656,9 +635,6 @@ subroutine setup_exchange_longrange(p_matrix,exchange_ao,eexchange)
  integer              :: ibf,jbf,kbf,lbf,ispin
  integer(kind=int8)   :: iint
  integer              :: index_ik,index_lj,stride
-#if defined(_OPENMP)
- integer,external :: OMP_GET_NUM_THREADS,OMP_GET_THREAD_NUM
-#endif
 !=====
 
  call start_clock(timing_exchange)
@@ -781,7 +757,7 @@ subroutine setup_exchange_ri(occupation,c_matrix,p_matrix,exchange_ao,eexchange)
    !$OMP END PARALLEL DO
 
    do iauxil=1,nauxil_local
-     if( MODULO( iauxil - 1 , nproc_ortho ) /= rank_ortho ) cycle
+     if( MODULO( iauxil - 1 , ortho%nproc ) /= ortho%rank ) cycle
      tmp(:,:) = 0.0_dp
      !$OMP PARALLEL PRIVATE(ibf,jbf)
      !$OMP DO REDUCTION(+:tmp)
@@ -814,7 +790,7 @@ subroutine setup_exchange_ri(occupation,c_matrix,p_matrix,exchange_ao,eexchange)
      enddo
    enddo
  enddo
- call xsum_world(exchange_ao)
+ call world%sum(exchange_ao)
 
  eexchange = 0.5_dp * SUM( exchange_ao(:,:,:) * p_matrix(:,:,:) )
 
@@ -869,7 +845,7 @@ subroutine setup_exchange_longrange_ri(occupation,c_matrix,p_matrix,exchange_ao,
 
 
    do iauxil=1,nauxil_local
-     if( MODULO( iauxil - 1 , nproc_ortho ) /= rank_ortho ) cycle
+     if( MODULO( iauxil - 1 , ortho%nproc ) /= ortho%rank ) cycle
      tmp(:,:) = 0.0_dp
      !$OMP PARALLEL PRIVATE(ibf,jbf)
      !$OMP DO REDUCTION(+:tmp)
@@ -902,7 +878,7 @@ subroutine setup_exchange_longrange_ri(occupation,c_matrix,p_matrix,exchange_ao,
      enddo
    enddo
  enddo
- call xsum_world(exchange_ao)
+ call world%sum(exchange_ao)
 
  eexchange = 0.5_dp * SUM( exchange_ao(:,:,:) * p_matrix(:,:,:) )
 
@@ -952,7 +928,7 @@ subroutine setup_exchange_ri_cmplx(occupation,c_matrix,p_matrix,exchange_ao,eexc
    !$OMP END PARALLEL DO
 
    do iauxil=1,nauxil_3center
-     if( MODULO( iauxil - 1 , nproc_ortho ) /= rank_ortho ) cycle
+     if( MODULO( iauxil - 1 , ortho%nproc ) /= ortho%rank ) cycle
      tmp_cmplx(:,:) = (0.0_dp, 0.0_dp)
      !$OMP PARALLEL PRIVATE(ibf,jbf)
      !$OMP DO REDUCTION(+:tmp_cmplx)
@@ -985,7 +961,7 @@ subroutine setup_exchange_ri_cmplx(occupation,c_matrix,p_matrix,exchange_ao,eexc
      enddo
    enddo
  enddo
- call xsum_world(exchange_ao)
+ call world%sum(exchange_ao)
 
  eexchange = 0.5_dp * REAL( SUM( exchange_ao(:,:,:) * CONJG( p_matrix(:,:,:) ) ) , dp)
 
@@ -1218,17 +1194,32 @@ subroutine dft_exc_vxc_batch(batch_size,basis,occupation,c_matrix,vxc_ao,exc_xc)
                           +  bf_gradz_batch(:,ir) * dedgd_r_batch(3,ir,ispin) * weight_batch(ir)
        enddo
        !$OMP END PARALLEL DO
+       call DSYR2K('L','N',basis%nbf,nr,1.0d0,basis_function_r_batch,basis%nbf,tmp_batch,basis%nbf, &
+                   1.0d0,vxc_ao(:,:,ispin),basis%nbf)
      else
+
        !
        ! LDA
        !
-       !$OMP PARALLEL DO
-       do ir=1,nr
-         tmp_batch(:,ir) = weight_batch(ir) * dedd_r_batch(ispin,ir) * basis_function_r_batch(:,ir) * 0.50_dp
-       enddo
-       !$OMP END PARALLEL DO
+       ! When of all deddr are negative, one can calculate its square-root and use the twice faster DSYRK routine
+       ! The negative sign is restored at the DSYRK stage.
+       if( ANY( dedd_r_batch(:,:) > 1.0e-15_dp ) ) then
+         !$OMP PARALLEL DO
+         do ir=1,nr
+           tmp_batch(:,ir) = weight_batch(ir) * dedd_r_batch(ispin,ir) * basis_function_r_batch(:,ir) * 0.50_dp
+         enddo
+         !$OMP END PARALLEL DO
+         call DSYR2K('L','N',basis%nbf,nr,1.0d0,basis_function_r_batch,basis%nbf,tmp_batch,basis%nbf, &
+                     1.0d0,vxc_ao(:,:,ispin),basis%nbf)
+       else
+         !$OMP PARALLEL DO
+         do ir=1,nr
+           tmp_batch(:,ir) = SQRT( MAX(-weight_batch(ir) * dedd_r_batch(ispin,ir),1.1e-15_dp) ) * basis_function_r_batch(:,ir)
+         enddo
+         !$OMP END PARALLEL DO
+         call DSYRK('L','N',basis%nbf,nr,-1.0d0,tmp_batch,basis%nbf,1.0d0,vxc_ao(:,:,ispin),basis%nbf)
+       endif
      endif
-     call DSYR2K('L','N',basis%nbf,nr,1.0d0,basis_function_r_batch,basis%nbf,tmp_batch,basis%nbf,1.0d0,vxc_ao(:,:,ispin),basis%nbf)
 
    enddo
    deallocate(tmp_batch)
@@ -1268,9 +1259,9 @@ subroutine dft_exc_vxc_batch(batch_size,basis,occupation,c_matrix,vxc_ao,exc_xc)
 
  !
  ! Sum up the contributions from all procs only if needed
- call xsum_grid(normalization)
- call xsum_grid(vxc_ao)
- call xsum_grid(exc_xc)
+ call grid%sum(normalization)
+ call grid%sum(vxc_ao)
+ call grid%sum(exc_xc)
 
 
 #else
@@ -1317,7 +1308,7 @@ subroutine dft_approximate_vhxc(basis,vhxc_ao)
  write(stdout,'(/,a)') ' Calculate approximate HXC potential with a superposition of atomic densities'
 
  do iatom=1,natom
-   if( rank_grid /= MODULO(iatom,nproc_grid) ) cycle
+   if( grid%rank /= MODULO(iatom,grid%nproc) ) cycle
 
    ngau = 4
    allocate(alpha(ngau),coeff(ngau))
@@ -1390,9 +1381,9 @@ subroutine dft_approximate_vhxc(basis,vhxc_ao)
  enddo ! loop on the grid point
  !
  ! Sum up the contributions from all procs only if needed
- call xsum_grid(normalization)
- call xsum_grid(exc)
- call xsum_grid(vhxc_ao)
+ call grid%sum(normalization)
+ call grid%sum(exc)
+ call grid%sum(vhxc_ao)
 
  ! Symmetrize vhxc
  do ibf=1,basis%nbf

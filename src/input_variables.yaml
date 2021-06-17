@@ -80,8 +80,8 @@ basis:
   mandatory: 'yes'
   experimental: 'no'
   default: ''
-  comment: Sets the basis set For Pople sets, use 6-31G for instance or 6-31pGs, where
-    p stands for + and s for *. For Dunning sets, use aug-cc-pVTZ for instance. Note
+  comment: Sets the basis set For Pople sets, use 6-31G for instance or 6-31+G\*.
+    For Dunning sets, use aug-cc-pVTZ for instance. Note
     that Pople sets are to be used with gaussian_type='cart' One may use ones own
     basis sets provided that the files are labeled X_mybasisset where X is the element.
 
@@ -270,7 +270,7 @@ scalapack_block_min:
   datatype: integer
   mandatory: 'no'
   experimental: 'no'
-  default: 1000
+  default: 100000
   comment: Sets the minimum block size to distribute a non-distributed matrix with
     SCALAPACK. If scalapack_block_min=400, then a 900x900 matrix will be distributed
     on a 2x2 processor grid. If scalapack_block_min=500, then a 900x900 matrix will
@@ -287,7 +287,7 @@ basis_path:
   mandatory: 'no'
   experimental: 'no'
   default: ''
-  comment: Sets the path pointing to the basis functions files.                  If
+  comment: Sets the path pointing to the basis functions files. If
     not specified, then the basis set files will be searched in folder ~molgw/basis/.
 
 force_energy_qp:
@@ -724,13 +724,13 @@ nexcitation:
   comment: Sets the number of neutral excitations to be calculated in TD-DFT or BSE.                  0
     stands for all the states and triggers the full diagonalization.
 
-nomega_imag:
+nomega_chi_imag:
   family: post
   datatype: integer
   mandatory: 'no'
   experimental: 'no'
   default: 0
-  comment: Sets the number of frequencies used to perform the integral on the imaginary
+  comment: Sets the number of frequencies for the response function used to perform the integral on the imaginary
     axis
 
 nomega_sigma:
@@ -741,6 +741,14 @@ nomega_sigma:
   default: 51
   comment: Sets the number of frequencies used to solve the quasiparticle equation
     in the GW self-energy.
+
+nomega_sigma_calc:
+  family: post
+  datatype: integer
+  mandatory: 'no'
+  experimental: 'no'
+  default: 1
+  comment: Sets the number of frequencies where the GW self-energy is actually calculated.
 
 nstep_dav:
   family: post
@@ -759,6 +767,15 @@ nstep_gw:
   default: '1'
   comment: Sets the number of GW iterations for eigenvalue self-consistent GW calculations
     (GnWn or GnW0).
+
+nvel_projectile:
+  family: postscf
+  datatype: integer
+  mandatory: 'no'
+  experimental: 'no'
+  default: 1
+  comment: Number of velocities used in linear-response stopping power.
+           The first velocity is given by vel_projectile. The next ones are multiples of this initial value.
 
 nvirtualg:
   family: post
@@ -874,15 +891,24 @@ step_sigma:
   mandatory: 'no'
   experimental: 'no'
   default: 0.01
-  comment: Sets the spacing between frequencies in the GW self-energy evaluation.
+  comment: Sets the spacing between frequencies in the final GW self-energy output.
+
+step_sigma_calc:
+  family: post
+  datatype: real
+  mandatory: 'no'
+  experimental: 'no'
+  default: 0.03
+  comment: Sets the spacing between the frequencies where the GW self-energy is actually calculated.
 
 stopping:
   family: post
-  datatype: yes/no
+  datatype: characters
   mandatory: 'no'
   experimental: 'no'
   default: 'no'
-  comment: Triggers the calculation of the stopping power within linear-response theory. Only effective when postscf='td' or 'bse'.
+  comment: Triggers the calculation of the stopping power within linear-response theory.
+           Only effective when postscf=''td'' or ''bse''. Avaialble values are ''no'', ''spherical'', ''3d''.
 
 tda:
   family: post
@@ -971,7 +997,7 @@ excit_name:
   datatype: characters
   mandatory: 'no'
   experimental: 'no'
-  default: 'NO'
+  default: 'no'
   comment: "Sets the type of excitation of a system in the real-time dynamics.  'GAU' stands for a linearly polarized uniform Gaussian electric field"
 
 excit_omega:
@@ -1091,7 +1117,7 @@ vel_projectile:
   - 0.0
   - 0.0
   - 1.0
-  comment: Projectile initial velocity.
+  comment: Projectile initial velocity. Used for real-time tddft and for linear-response stopping power calculations
 
 
 #============================================================================

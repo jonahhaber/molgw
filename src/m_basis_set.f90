@@ -101,8 +101,6 @@ subroutine init_basis_set(basis_path,basis_name,ecp_basis_name,gaussian_type,bas
  basis%nshell        = 0
  basis%gaussian_type = gaussian_type
 
- if( TRIM(basis_name(1)) == 'none' ) return
-
  !
  ! LOOP OVER ATOMS
  !
@@ -111,13 +109,16 @@ subroutine init_basis_set(basis_path,basis_name,ecp_basis_name,gaussian_type,bas
      if( ANY( element_ecp(:) == zbasis(iatom) ) ) then
        basis_filename = ADJUSTL(TRIM(basis_path) // '/' // TRIM(ADJUSTL(element_name(REAL(zbasis(iatom),dp)))) &
                         // '_' // TRIM(ecp_basis_name(iatom)))
+       if( TRIM(capitalize(ecp_basis_name(iatom))) == 'NONE' ) cycle
      else
        basis_filename = ADJUSTL(TRIM(basis_path) // '/' // TRIM(ADJUSTL(element_name(REAL(zbasis(iatom),dp)))) &
                        // '_' // TRIM(basis_name(iatom)))
+       if( TRIM(capitalize(basis_name(iatom))) == 'NONE' ) cycle
      endif
    else
      basis_filename = ADJUSTL(TRIM(basis_path) // '/' // TRIM(ADJUSTL(element_name(REAL(zbasis(iatom),dp)))) &
                      // '_' // TRIM(basis_name(iatom)))
+     if( TRIM(capitalize(basis_name(iatom))) == 'NONE' ) cycle
    endif
 
    inquire(file=TRIM(basis_filename),exist=file_exists)
@@ -163,13 +164,16 @@ subroutine init_basis_set(basis_path,basis_name,ecp_basis_name,gaussian_type,bas
      if( ANY( element_ecp(:) == zbasis(iatom) ) ) then
        basis_filename = ADJUSTL(TRIM(basis_path) // '/' // TRIM(ADJUSTL(element_name(REAL(zbasis(iatom),dp)))) &
                         // '_' // TRIM(ecp_basis_name(iatom)))
+       if( TRIM(capitalize(ecp_basis_name(iatom))) == 'NONE' ) cycle
      else
        basis_filename = ADJUSTL(TRIM(basis_path) // '/' // TRIM(ADJUSTL(element_name(REAL(zbasis(iatom),dp)))) &
                        // '_' // TRIM(basis_name(iatom)))
+       if( TRIM(capitalize(basis_name(iatom))) == 'NONE' ) cycle
      endif
    else
      basis_filename = ADJUSTL(TRIM(basis_path) // '/' // TRIM(ADJUSTL(element_name(REAL(zbasis(iatom),dp)))) &
                       // '_' //TRIM(basis_name(iatom)))
+     if( TRIM(capitalize(basis_name(iatom))) == 'NONE' ) cycle
    endif
 
    open(newunit=basisfile,file=TRIM(basis_filename),status='old')
@@ -888,7 +892,7 @@ subroutine init_basis_function(normalized,ng,nx,ny,nz,iatom,x0,alpha,coeff,shell
 
  ! All the gaussians of the contraction have the same orbital momentum
  do ig=1,bf%ngaussian
-   call init_gaussian_general(nx,ny,nz,alpha(ig),x0,bf%g(ig))
+   call init_gaussian_cart(nx,ny,nz,alpha(ig),x0,bf%g(ig))
    bf%coeff(ig) = coeff(ig)
  enddo
 
@@ -942,7 +946,7 @@ subroutine init_basis_function_pure(normalized,ng,am,mm,iatom,x0,alpha,coeff,she
 
 !  ! All the gaussians of the contraction have the same orbital momentum
 !  do ig=1,bf%ngaussian
-!    call init_gaussian_general(nx,ny,nz,alpha(ig),x0,bf%g(ig))
+!    call init_gaussian_cart(nx,ny,nz,alpha(ig),x0,bf%g(ig))
 !    bf%coeff(ig) = coeff(ig)
 !  enddo
 !

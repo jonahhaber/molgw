@@ -7,9 +7,7 @@
 !
 !=========================================================================
 module m_io
-#if defined(FORTRAN2008)
- use,intrinsic :: iso_fortran_env, only: compiler_version,compiler_options
-#endif
+ use,intrinsic :: ISO_FORTRAN_ENV, only: COMPILER_VERSION,COMPILER_OPTIONS
  use m_definitions
  use m_mpi
  use m_timing
@@ -48,11 +46,8 @@ contains
 subroutine this_is_the_end()
  implicit none
 
-!=====
-#if defined(_OPENMP)
- integer,external  :: OMP_get_max_threads
-#endif
-!=====
+ !=====
+ !=====
 
  call total_memory_statement()
 
@@ -62,9 +57,9 @@ subroutine this_is_the_end()
 
  if( print_yaml_ .AND. is_iomaster ) then
    write(unit_yaml,'(/,a)')  'run:'
-   write(unit_yaml,'(4x,a,1x,i6)')  'mpi tasks:  ',nproc_world
+   write(unit_yaml,'(4x,a,1x,i6)')  'mpi tasks:  ',world%nproc
 #if defined(_OPENMP)
-   write(unit_yaml,'(4x,a,1x,i6)')  'omp threads:',OMP_get_max_threads()
+   write(unit_yaml,'(4x,a,1x,i6)')  'omp threads:',OMP_GET_MAX_THREADS()
 #else
    write(unit_yaml,'(4x,a,1x,i6)')  'omp threads:',1
 #endif
@@ -83,6 +78,8 @@ subroutine this_is_the_end()
    close(unit_yaml)
  endif
 
+ write(stdout,'(/,1x,a)') 'When using MOLGW for a publication, citation to the following article is appreciated:'
+ write(stdout,'(6x,a)')   '    Bruneval, Rangel, Hamed, Shao, Yang, Neaton, Comput. Phys. Comm. 208, 149 (2016).'
  write(stdout,'(/,1x,a,/)') 'This is the end'
 
  call finish_mpi()
@@ -98,14 +95,9 @@ subroutine header()
  implicit none
 
 !=====
-#if defined(_OPENMP)
- integer,external  :: OMP_get_max_threads
-#endif
  character(len=40)   :: git_sha
  integer             :: values(8)
-#if defined(FORTRAN2008)
  integer             :: nchar,kchar,lchar
-#endif
  character(len=1024) :: chartmp
 !=====
 ! variables used to call C
@@ -122,25 +114,23 @@ subroutine header()
 
  write(stdout,'(1x,70("="))')
  write(stdout,'(/,/,12x,a,/)') 'Welcome to the fascinating world of MOLGW'
- write(stdout,'(24x,a)')       'version 2.D'
+ write(stdout,'(24x,a)')       'version 2.F'
  write(stdout,'(/,/,1x,70("="))')
 
  write(stdout,'(/,a,a,/)') ' MOLGW commit git SHA: ',git_sha
-#if defined(FORTRAN2008)
- write(stdout,'(1x,a,a)')    'compiled with ',compiler_version()
+ write(stdout,'(1x,a,a)')    'compiled with ',COMPILER_VERSION()
  write(stdout,'(1x,a)')      'with options: '
- chartmp = compiler_options()
+ chartmp = COMPILER_OPTIONS()
  nchar = LEN(TRIM(chartmp))
  kchar = 1
  lchar = 0
  do
    lchar = SCAN(chartmp(kchar:nchar),' ')
    if( lchar == 0 ) exit
-   write(stdout,'(6x,a,a)') 'FCOPT  ',chartmp(kchar:kchar+lchar-1)
+   write(stdout,'(6x,a,a)') 'FCFLAGS ',chartmp(kchar:kchar+lchar-1)
    kchar = kchar + lchar
  enddo
  write(stdout,*)
-#endif
 
 
  call date_and_time(VALUES=values)
@@ -172,7 +162,7 @@ subroutine header()
 
  ! Parallelization details
 #if defined(_OPENMP)
- write(stdout,'(1x,a,i4)') 'Running with OPENMP parallelization activated with max threads count: ',OMP_get_max_threads()
+ write(stdout,'(1x,a,i4)') 'Running with OPENMP parallelization activated with max threads count: ',OMP_GET_MAX_THREADS()
 #endif
 #if defined(HAVE_MPI) && defined(HAVE_SCALAPACK)
  write(stdout,*) 'Running with MPI'
@@ -192,22 +182,17 @@ subroutine header()
                                 ammax,orbital_momentum_name(ammax)
  call set_molgw_lmax(ammax)
 
-#if defined(HAVE_LIBINT_GRADIENTS) && !defined(HAVE_LIBINT_ONEBODY)
- call die('MOLGW gradients requires both compilations HAVE_LIBINT_GRADIENTS and HAVE_LIBINT_ONEBODY')
-#endif
+ if( .NOT. has_onebody ) then
+   write(stdout,'(1x,a)')  'Running with external LIBINT calculation of the one-body operators (faster)'
+ else
+   write(stdout,'(1x,a)')  'Running with internal calculation of the one-body operators (slower)'
+ endif
 
-#if defined(HAVE_LIBINT_ONEBODY)
- if( .NOT. has_onebody ) &
-   call die('MOLGW compiled with LIBINT one-body terms, however the LIBINT compilation does not calculate the one-body terms')
- write(stdout,'(1x,a)')  'Running with external LIBINT calculation of the one-body operators (faster)'
-#else
- write(stdout,'(1x,a)')  'Running with internal calculation of the one-body operators (slower)'
+#if defined(LIBINT2_DERIV_ONEBODY_ORDER) && (LIBINT2_DERIV_ONEBODY_ORDER > 0)
+ write(stdout,'(1x,a)') 'Running with external LIBINT calculation of the gradients of the one-body integrals'
 #endif
-
-#if defined(HAVE_LIBINT_GRADIENTS)
- if( .NOT. has_gradient ) &
-   call die('LIBINT compilation does not have the first derivative')
- write(stdout,'(1x,a)') 'Running with external LIBINT calculation of the gradients of the integrals'
+#if defined(LIBINT2_DERIV_ERI_ORDER) && (LIBINT2_DERIV_ERI_ORDER > 0)
+ write(stdout,'(1x,a)') 'Running with external LIBINT calculation of the gradients of the Coulomb integrals'
 #endif
  write(stdout,*)
  write(stdout,*)
@@ -1939,7 +1924,7 @@ subroutine calc_density_in_disc_cmplx_regular(nstate,nocc_dim,basis,occupation,c
    istate2=nocc(ispin)
    charge_layer(:)=0.0_dp
    do iz=1,nz
-     if(MODULO(iz-1,nproc_world)/=rank_world) cycle
+     if(MODULO(iz-1,world%nproc)/=world%rank) cycle
      rr(3) = ( zmin + (iz-1)*dz )
      do ix=1,nx
        rr(1) = ( xmin + (ix-1)*dx )
@@ -1956,7 +1941,7 @@ subroutine calc_density_in_disc_cmplx_regular(nstate,nocc_dim,basis,occupation,c
      enddo
    enddo
 
-   call xsum_world(charge_layer(:))
+   call world%sum(charge_layer(:))
 
    charge_layer = charge_layer * dx*dy
 
@@ -2351,7 +2336,7 @@ subroutine plot_cube_diff_parallel_cmplx(nstate,nocc_dim,basis,occupation,c_matr
    !$OMP PARALLEL PRIVATE(basis_function_r,rr,ix,iy,iz,phi_cmplx)
    !$OMP DO
    do ix=1,nx
-!     if(MODULO(ix-1,nproc_world)/=rank_world) cycle
+!     if(MODULO(ix-1,world%nproc)/=world%rank) cycle
      rr(1) = ( xmin + (ix-1)*dx )
      do iy=1,ny
        rr(2) = ( ymin + (iy-1)*dy )
@@ -2373,7 +2358,7 @@ subroutine plot_cube_diff_parallel_cmplx(nstate,nocc_dim,basis,occupation,c_matr
    call stop_clock(timing_tmp0)
 
 !   call start_clock(timing_tmp1)
-!   call xsum_world(dens_diff)
+!   call world%sum(dens_diff)
 !   call stop_clock(timing_tmp1)
 
    if( is_iomaster ) then
@@ -3164,7 +3149,7 @@ subroutine read_gaussian_fchk(read_fchk_in,file_name,basis,p_matrix_out)
  endif
 
  ! Broadcast the density matrix from proc iomaster to all the other procs.
- call xbcast_world(iomaster,p_matrix_out)
+ call world%bcast(iomaster,p_matrix_out)
 
 
 end subroutine read_gaussian_fchk

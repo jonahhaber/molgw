@@ -2,6 +2,51 @@
 #    MOLGW: Release Notes
 -----------------------------------------
 
+
+-----------------------------------------
+## What's new in version 2.F
+### Overview
+- MOLGW is now compatible with LIBXC 5
+- MOLGW automatically detects the LIBINT configuration. Easier compilation
+- Possibility to add point charges in the structure
+
+### Contributors
+- Fabien Bruneval (CEA SRMP, France)
+
+### Changes affecting the usage
+- Fractional point charges (without basis functions) can be specified in the structure using the syntax:
+ 0.100   0.000  0.000  0.000   none  none   #   q   x y z  basis  auxiliary_basis
+
+### Changes affecting the compilation
+- MOLGW can be linked against LIBXC 5
+- MOLGW detects LIBINT configuration to know wheter the one-body integrals and the gradients are available. Preprocessor instructions such as `-DHAVE_LIBNIT_ONEDOBY` are not needed anymore.
+
+
+-----------------------------------------
+## What's new in version 2.E
+### Overview
+- MOLGW proposes automatically an extrapolated GW energy to the  Complete Basis Set limit when using Dunning basis sets
+- GW with analytic continuation is now robust for the HOMO-LUMO gap region. Tested for C60 in aug-cc-pV5Z (>7500 basis functions)
+- small bug fixes, speed-ups, memory reductions
+
+### Contributors
+- Fabien Bruneval (CEA SRMP, France)
+- Xixi Qi (CEA SRMP, France)
+- Mauricio Rodriguez-Mayorga (CEA SRMP, France)
+
+### Changes affecting the usage
+- Automatic suggestion of an extrapolation to the Complete Basis Set limit for GW energies
+- GW analytic continuation technique is fully functional. Use postscf='G0W0_pade'. It is much faster than the analytic formula but it is mostly reliable close to the HOMO-LUMO gap.
+- Reduced memory consumption in the Pulay history (SCALAPACK distribution of the large arrays)
+- Improved OPENMP
+
+### Changes affecting the compilation
+- Assuming now that all Fortran compilers have Fortran 2008 capabilities. Preprocessor key FORTRAN2008 has been removed.
+
+### Changes affecting the developers
+- Introduce high-level mpi tools for instance, world%sum() for reduction, world%nproc, world%rank for information
+
+
 -----------------------------------------
 ## What's new in version 2.D
 ### Overview
@@ -26,6 +71,7 @@ Compiler options such as `-ffree-line-length-none` are not needed any more.
 
 ### Changes affecting the developers
 - Please respect the 132-character limit of Fortran.
+
 
 -----------------------------------------
 ## What's new in version 2.C

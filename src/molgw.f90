@@ -167,7 +167,7 @@ program molgw
     ! calculation
     !
     ! A crucial parameter is defined here: nstate
-    call setup_sqrt_overlap(min_overlap,s_matrix,nstate,x_matrix)
+    call setup_x_matrix(min_overlap,s_matrix,nstate,x_matrix)
 
     allocate(occupation(nstate,nspin))
     allocate(    energy(nstate,nspin))
@@ -272,7 +272,6 @@ program molgw
 
     !
     ! Testing the quadrature in Fourier space
-    ! FBFB: Xixi look: this is the new Fourier coding.
     !if( .TRUE. ) then
     !  !                        basis projectile n basis_target
     !  call setup_overlap_fourier(basis,basis,s_matrix)

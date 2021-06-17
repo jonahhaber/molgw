@@ -95,7 +95,7 @@ subroutine setup_virtual_smallbasis(basis,nstate,occupation,nsemax,energy,c_matr
  s_small(:,:) = MATMUL( TRANSPOSE(s_bigsmall) , MATMUL( s_matrix_inv , s_bigsmall ) )
 
  ! Calculate ( tilde S )^{-1/2}
- call setup_sqrt_overlap(min_overlap,s_small,nstate_small,x_small)
+ call setup_x_matrix(min_overlap,s_small,nstate_small,x_small)
  call clean_deallocate('Overlap matrix Ssmall',s_small)
 
 
@@ -184,7 +184,7 @@ subroutine setup_virtual_smallbasis(basis,nstate,occupation,nsemax,energy,c_matr
 
  call clean_deallocate('Overlap matrix S',s_matrix)
 
- call setup_sqrt_overlap(min_overlap,s_bar,nstate_bar,s_bar_sqrt_inv)
+ call setup_x_matrix(min_overlap,s_bar,nstate_bar,s_bar_sqrt_inv)
  if( nstate_small /= nstate_bar ) call die('virtual_smallbasis: this usually never happens')
  call clean_deallocate('Overlap selected states',s_bar)
 
@@ -320,7 +320,7 @@ subroutine calculate_virtual_fno(basis,nstate,nsemax,occupation,energy,c_matrix)
          eri_ci_i(astate) = eri_eigen(cstate,istate,ispin,astate,istate,ispin) &
                               / ( energy(istate,ispin) + energy(istate,ispin) - energy(astate,ispin) - energy(cstate,ispin) )
        enddo
-!       call xsum_auxil(eri_ci_i)
+!       call auxil%sum(eri_ci_i)
 
        do bstate=nsemax+1,nstate
          do astate=nsemax+1,nstate
@@ -507,3 +507,4 @@ end subroutine destroy_fno
 
 !=========================================================================
 end module m_virtual_orbital_space
+!=========================================================================

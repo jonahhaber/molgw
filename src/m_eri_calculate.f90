@@ -499,7 +499,7 @@ subroutine calculate_eri_4center_shell_grad(basis,rcut,ijshellpair,klshellpair,&
  allocate(gradDy(n1c*n2c*n3c*n4c))
  allocate(gradDz(n1c*n2c*n3c*n4c))
 
-#if defined(HAVE_LIBINT_GRADIENTS)
+#if (LIBINT2_DERIV_ERI_ORDER > 0)
  call libint_4center_grad(am1,ng1,x01,alpha1,coeff1, &
                           am2,ng2,x02,alpha2,coeff2, &
                           am3,ng3,x03,alpha3,coeff3, &
@@ -658,9 +658,7 @@ subroutine calculate_integrals_eri_2center_scalapack(auxil_basis,rcut,mask_auxil
 
  call set_auxil_block_size(auxil_basis%nbf/(npcol_eri3_ao*2))
 
-
  if( cntxt_3center > 0 ) then
-
 
    ! Set mlocal => auxil_basis%nbf
    ! Set nlocal => auxil_basis%nbf
@@ -686,6 +684,10 @@ subroutine calculate_integrals_eri_2center_scalapack(auxil_basis,rcut,mask_auxil
    endif
 
 
+   !$OMP PARALLEL PRIVATE(amk,nk,do_shell,kglobal,ami,ni,iglobal, &
+   !$OMP&                 am1,am3,n1c,n3c,int_shell,ng1,ng3,alpha1,alpha3,x01,x03,coeff1,coeff3,&
+   !$OMP&                 klocal,ilocal,integrals)
+   !$OMP DO
    do kshell=1,auxil_basis%nshell
      amk = auxil_basis%shell(kshell)%am
      nk  = number_basis_function_am( auxil_basis%gaussian_type , amk )
@@ -787,6 +789,8 @@ subroutine calculate_integrals_eri_2center_scalapack(auxil_basis,rcut,mask_auxil
 
      enddo   ! ishell
    enddo   ! kshell
+   !$OMP END DO
+   !$OMP END PARALLEL
 
  endif
 
@@ -854,10 +858,18 @@ subroutine calculate_inverse_eri_2center_scalapack(auxil_basis,rcut)
    !
 #if defined(HAVE_SCALAPACK)
 
-   ! I did not find a SCALAPACK equivalent to DSYTRF for real symmetric matrix
-   ! So I use the general inversion routines
+   ! I found a SCALAPACK equivalent to DSYTRF for real symmetric matrix: PDPOTRF/PDPOTRI
+   ! but it requires that the matrix is positive definite (Cholevski decomposition)
+   ! Coulomb 2-center integrals are positive definite in theory
+   ! This is just to say to be careful
+   ! call invert_chol_sca(desc_2center,eri_2center_inv)
+   ! call symmetrize_matrix_sca('L',nauxil_2center,desc_2center,eri_2center_inv,desc_2center,eri_2center)
+
+   ! but in practice, some numerical noise occurs and the Cholevski decomposition fails
+   ! Use the slower but safer:
    call symmetrize_matrix_sca('L',nauxil_2center,desc_2center,eri_2center,desc_2center,eri_2center_inv)
    call invert_sca(desc_2center,eri_2center,eri_2center_inv)
+
 
 #else
 
@@ -938,7 +950,7 @@ subroutine calculate_inverse_sqrt_eri_2center_scalapack(auxil_basis,rcut)
 #else
 
    !
-   ! No need to symmetrize since the diago only considers the lower trinagle of eri_2center_tmp
+   ! No need to symmetrize since the diago only considers the lower trinagle of eri_2center
    call diagonalize_scalapack(' ',scalapack_block_min,eri_2center,eigval)
    call move_alloc(eri_2center,eri_2center_eigvec)
 
@@ -952,7 +964,7 @@ subroutine calculate_inverse_sqrt_eri_2center_scalapack(auxil_basis,rcut)
  else
    nauxil_kept    = 0
  endif
- call xmax_ortho(nauxil_kept)
+ call ortho%max(nauxil_kept)
  nauxil_neglect = auxil_basis%nbf - nauxil_kept
 
 
@@ -961,28 +973,33 @@ subroutine calculate_inverse_sqrt_eri_2center_scalapack(auxil_basis,rcut)
    ! Prepare the distribution of the 3-center integrals
    ! nauxil_3center variable is now set up
    call distribute_auxil_basis(nauxil_2center)
-   !
-   ! This is the final descriptor for the 2-center integrals in the eigvec basis
-   ! Set mlocal distributes auxil_basis%nbf
-   ! Set nlocal distributes nauxil_kept <= auxil_basis%nbf
-   mlocal = NUMROC(auxil_basis%nbf,MB_3center,iprow_3center,first_row,nprow_3center)
-   nlocal = NUMROC(nauxil_kept    ,NB_3center,ipcol_3center,first_col,npcol_3center)
-   call DESCINIT(desc_2center_sqrtinv,auxil_basis%nbf,nauxil_kept,MB_3center,NB_3center, &
-                   first_row,first_col,cntxt_3center,MAX(1,mlocal),info)
 
+   if( cntxt_3center > 0 ) then
+     !
+     ! This is the final descriptor for the 2-center integrals in the eigvec basis
+     ! Set mlocal distributes auxil_basis%nbf
+     ! Set nlocal distributes nauxil_kept <= auxil_basis%nbf
+     mlocal = NUMROC(auxil_basis%nbf,MB_3center,iprow_3center,first_row,nprow_3center)
+     nlocal = NUMROC(nauxil_kept    ,NB_3center,ipcol_3center,first_col,npcol_3center)
+     call DESCINIT(desc_2center_sqrtinv,auxil_basis%nbf,nauxil_kept,MB_3center,NB_3center, &
+                     first_row,first_col,cntxt_3center,MAX(1,mlocal),info)
+   endif
  else
    nauxil_2center_lr = nauxil_kept
    ! Prepare the distribution of the 3-center integrals
    ! nauxil_3center_lr variable is now set up
    call distribute_auxil_basis_lr(nauxil_2center_lr)
-   !
-   ! This is the final descriptor for the LR 2-center integrals in the eigvec basis
-   ! Set mlocal distributes auxil_basis%nbf
-   ! Set nlocal distributes nauxil_kept <= auxil_basis%nbf
-   mlocal = NUMROC(auxil_basis%nbf,MB_3center,iprow_3center,first_row,nprow_3center)
-   nlocal = NUMROC(nauxil_kept    ,NB_3center,ipcol_3center,first_col,npcol_3center)
-   call DESCINIT(desc_2center_sqrtinv_lr,auxil_basis%nbf,nauxil_kept,MB_3center,NB_3center, &
-                   first_row,first_col,cntxt_3center,MAX(1,mlocal),info)
+
+   if( cntxt_3center > 0 ) then
+     !
+     ! This is the final descriptor for the LR 2-center integrals in the eigvec basis
+     ! Set mlocal distributes auxil_basis%nbf
+     ! Set nlocal distributes nauxil_kept <= auxil_basis%nbf
+     mlocal = NUMROC(auxil_basis%nbf,MB_3center,iprow_3center,first_row,nprow_3center)
+     nlocal = NUMROC(nauxil_kept    ,NB_3center,ipcol_3center,first_col,npcol_3center)
+     call DESCINIT(desc_2center_sqrtinv_lr,auxil_basis%nbf,nauxil_kept,MB_3center,NB_3center, &
+                     first_row,first_col,cntxt_3center,MAX(1,mlocal),info)
+   endif
  endif
 
 
@@ -1113,6 +1130,7 @@ subroutine calculate_integrals_eri_3center_scalapack(basis,auxil_basis,rcut,mask
  logical                      :: do_shell,recalculation
  integer(kind=int8)           :: libint_calls
  integer                      :: ipair
+ real(dp)                     :: factor
 !=====
 ! variables used to call C
  real(C_DOUBLE)               :: rcut_libint
@@ -1166,8 +1184,8 @@ subroutine calculate_integrals_eri_3center_scalapack(basis,auxil_basis,rcut,mask
      mlocal = 0
      nlocal = 0
    endif
-   call xmax_ortho(mlocal)
-   call xmax_ortho(nlocal)
+   call ortho%max(mlocal)
+   call ortho%max(nlocal)
    !
    ! Possibility to recalculate a few integrals only
    if( .NOT. recalculation ) then
@@ -1190,8 +1208,8 @@ subroutine calculate_integrals_eri_3center_scalapack(basis,auxil_basis,rcut,mask
      mlocal = 0
      nlocal = 0
    endif
-   call xmax_ortho(mlocal)
-   call xmax_ortho(nlocal)
+   call ortho%max(mlocal)
+   call ortho%max(nlocal)
    call clean_allocate('LR 3-center integrals SCALAPACK',eri_3center_lr,mlocal,nlocal)
  endif
 
@@ -1217,77 +1235,84 @@ subroutine calculate_integrals_eri_3center_scalapack(basis,auxil_basis,rcut,mask
    call DESCINIT(desc_3tmp,npair,auxil_basis%nbf,MB_3center,NB_3center,first_row,first_col,cntxt_3center,MAX(1,mlocal),info)
 
 
-   do klshellpair=1,nshellpair
-     kshell = index_shellpair(1,klshellpair)
-     lshell = index_shellpair(2,klshellpair)
+   !$OMP PARALLEL PRIVATE(ami,ni,do_shell,iglobal,am1,n1c,ng1,alpha1,coeff1,x01, &
+   !$OMP&                 kshell,lshell,amk,aml,nk,nl,am3,am4,n3c,n4c,ng3,ng4,alpha3,alpha4,  &
+   !$OMP&                 coeff3,coeff4,x03,x04, &
+   !$OMP&                 int_shell,integrals,klpair_global,ilocal,jlocal,factor)
+   !$OMP DO REDUCTION(+:libint_calls)
+   do ishell=1,auxil_basis%nshell
 
-     amk = basis%shell(kshell)%am
-     aml = basis%shell(lshell)%am
-     nk = number_basis_function_am( basis%gaussian_type , amk )
-     nl = number_basis_function_am( basis%gaussian_type , aml )
-
+     ami = auxil_basis%shell(ishell)%am
+     ni = number_basis_function_am( auxil_basis%gaussian_type , ami )
 
      ! Check if this shell is actually needed for the local matrix
      do_shell = .FALSE.
-     do lbf=1,nl
-       do kbf=1,nk
-         klpair_global = index_pair(basis%shell(kshell)%istart+kbf-1,basis%shell(lshell)%istart+lbf-1)
-
-         do_shell = do_shell .OR. ( iprow_3center == INDXG2P(klpair_global,MB_3center,0,first_row,nprow_3center) )
-       enddo
+     do ibf=1,ni
+       iglobal = auxil_basis%shell(ishell)%istart + ibf - 1
+       do_shell = do_shell .OR. ( ipcol_3center == INDXG2P(iglobal,NB_3center,0,first_col,npcol_3center) )
      enddo
-
      if( .NOT. do_shell ) cycle
 
-     am3 = amk
-     am4 = aml
-     n3c = number_basis_function_am( 'CART' , amk )
-     n4c = number_basis_function_am( 'CART' , aml )
-     ng3 = basis%shell(kshell)%ng
-     ng4 = basis%shell(lshell)%ng
-     allocate(alpha3(ng3),alpha4(ng4))
-     allocate(coeff3(ng3),coeff4(ng4))
-     alpha3(:) = basis%shell(kshell)%alpha(:)
-     alpha4(:) = basis%shell(lshell)%alpha(:)
-     coeff3(:) = basis%shell(kshell)%coeff(:)
-     coeff4(:) = basis%shell(lshell)%coeff(:)
-     x03(:) = basis%shell(kshell)%x0(:)
-     x04(:) = basis%shell(lshell)%x0(:)
+     am1 = ami
+     n1c = number_basis_function_am( 'CART' , ami )
+     ng1 = auxil_basis%shell(ishell)%ng
+     allocate(alpha1(ng1))
+     allocate(coeff1(ng1))
+     alpha1(:) = auxil_basis%shell(ishell)%alpha(:)
+     coeff1(:) = auxil_basis%shell(ishell)%coeff(:) * cart_to_pure_norm(0,agt)%matrix(1,1)
+     x01(:) = auxil_basis%shell(ishell)%x0(:)
 
-     !$OMP PARALLEL PRIVATE(ami,ni,do_shell,iglobal,am1,n1c,ng1,alpha1,coeff1,x01, &
-     !$OMP&                 int_shell,integrals,klpair_global,ilocal,jlocal)
-     !$OMP DO REDUCTION(+:libint_calls)
-     do ishell=1,auxil_basis%nshell
 
-       ami = auxil_basis%shell(ishell)%am
-       ni = number_basis_function_am( auxil_basis%gaussian_type , ami )
+
+     do klshellpair=1,nshellpair
+       kshell = index_shellpair(1,klshellpair)
+       lshell = index_shellpair(2,klshellpair)
+
+       amk = basis%shell(kshell)%am
+       aml = basis%shell(lshell)%am
+       nk = number_basis_function_am( basis%gaussian_type , amk )
+       nl = number_basis_function_am( basis%gaussian_type , aml )
+
 
        ! Check if this shell is actually needed for the local matrix
-       do_shell = .TRUE.
-       do ibf=1,ni
-         iglobal = auxil_basis%shell(ishell)%istart + ibf - 1
-         do_shell = do_shell .OR. ( ipcol_3center == INDXG2P(iglobal,NB_3center,0,first_col,npcol_3center) )
+       do_shell = .FALSE.
+       do lbf=1,nl
+         do kbf=1,nk
+           klpair_global = index_pair(basis%shell(kshell)%istart+kbf-1,basis%shell(lshell)%istart+lbf-1)
+
+           do_shell = do_shell .OR. ( iprow_3center == INDXG2P(klpair_global,MB_3center,0,first_row,nprow_3center) )
+         enddo
        enddo
 
        if( .NOT. do_shell ) cycle
+
        !
        ! Skip REcalculation if all the 3 shells are "moving" or if all the 3 shells are "still"
        !
        if( recalculation ) then
-         if( mask_auxil(ishell) .EQV. mask(kshell) .AND. mask_auxil(ishell) .EQV. mask(kshell) ) cycle
+         if( ( mask_auxil(ishell) .EQV. mask(kshell) ) &
+              .AND. ( mask_auxil(ishell) .EQV. mask(lshell) ) ) cycle
        endif
 
+
+
+       am3 = amk
+       am4 = aml
+       n3c = number_basis_function_am( 'CART' , amk )
+       n4c = number_basis_function_am( 'CART' , aml )
+       ng3 = basis%shell(kshell)%ng
+       ng4 = basis%shell(lshell)%ng
+       allocate(alpha3(ng3),alpha4(ng4))
+       allocate(coeff3(ng3),coeff4(ng4))
+       alpha3(:) = basis%shell(kshell)%alpha(:)
+       alpha4(:) = basis%shell(lshell)%alpha(:)
+       coeff3(:) = basis%shell(kshell)%coeff(:)
+       coeff4(:) = basis%shell(lshell)%coeff(:)
+       x03(:) = basis%shell(kshell)%x0(:)
+       x04(:) = basis%shell(lshell)%x0(:)
+
+
        libint_calls = libint_calls + 1
-
-       am1 = ami
-       n1c = number_basis_function_am( 'CART' , ami )
-       ng1 = auxil_basis%shell(ishell)%ng
-       allocate(alpha1(ng1))
-       allocate(coeff1(ng1))
-       alpha1(:) = auxil_basis%shell(ishell)%alpha(:)
-       coeff1(:) = auxil_basis%shell(ishell)%coeff(:) * cart_to_pure_norm(0,agt)%matrix(1,1)
-       x01(:) = auxil_basis%shell(ishell)%x0(:)
-
 
        allocate(int_shell(n1c*n3c*n4c))
 
@@ -1306,41 +1331,43 @@ subroutine calculate_integrals_eri_3center_scalapack(basis,auxil_basis,rcut,mask
            if( iprow_3center /= INDXG2P(klpair_global,MB_3center,0,first_row,nprow_3center) ) cycle
            ilocal = INDXG2L(klpair_global,MB_3center,0,first_row,nprow_3center)
 
+           ! By convention, eri_3center contains 1/2 (alpha beta | P ) when alpha = beta
+           factor = MERGE( 0.5_dp, 1.0_dp, index_basis(1,klpair_global) == index_basis(2,klpair_global) )
+
            do ibf=1,ni
              iglobal = auxil_basis%shell(ishell)%istart+ibf-1
              if( ipcol_3center /= INDXG2P(iglobal,NB_3center,0,first_col,npcol_3center) ) cycle
              jlocal = INDXG2L(iglobal,NB_3center,0,first_col,npcol_3center)
 
-             eri_3center(ilocal,jlocal) = integrals(ibf,kbf,lbf)
+             eri_3center(ilocal,jlocal) = integrals(ibf,kbf,lbf) * factor
 
            enddo
          enddo
        enddo
 
-
        deallocate(integrals)
        deallocate(int_shell)
-       deallocate(alpha1,coeff1)
-
-     enddo ! ishell
-     !$OMP END DO
-     !$OMP END PARALLEL
-
-     deallocate(alpha3,alpha4)
-     deallocate(coeff3,coeff4)
-
-   enddo ! klshellpair
 
 
+       deallocate(alpha3,alpha4)
+       deallocate(coeff3,coeff4)
 
+     enddo ! klshellpair
+
+     deallocate(alpha1,coeff1)
+
+   enddo ! ishell
+   !$OMP END DO
+   !$OMP END PARALLEL
 
 
 
    write(stdout,'(1x,a,i20)')      'Number of calls to libint of this proc: ',libint_calls
-   call xsum_world(libint_calls)
+   call world%sum(libint_calls)
    write(stdout,'(1x,a,7x,i20)')   'Total number of calls to libint: ',libint_calls
    write(stdout,'(1x,a,f8.2)')  'Redundant calls due to parallelization and batches (%): ', &
-                                   ( REAL(libint_calls,dp) / ( REAL(nshellpair,dp)*REAL(auxil_basis%nshell,dp) ) - 1.0_dp ) * 100.0_dp
+                                ( REAL(libint_calls,dp) / ( REAL(nshellpair,dp)*REAL(auxil_basis%nshell,dp) ) - 1.0_dp ) &
+                                * 100.0_dp
 
  endif
 
@@ -1348,28 +1375,14 @@ subroutine calculate_integrals_eri_3center_scalapack(basis,auxil_basis,rcut,mask
    if( cntxt_3center < 0 ) then
      eri_3center(:,:) = 0.0_dp
    endif
-   call xsum_ortho(eri_3center)
+   call ortho%sum(eri_3center)
    write(stdout,'(/,1x,a,/)') 'All 3-center integrals have been calculated and stored'
-
-   ! Include a factor 1/2 for pair containing twice the same basis function
-   do ipair=1,npair
-     ibf = index_basis(1,ipair)
-     jbf = index_basis(2,ipair)
-     if( ibf == jbf ) eri_3center(ipair,:) = eri_3center(ipair,:) * 0.5_dp
-   enddo
  else
    if( cntxt_3center < 0 ) then
      eri_3center_lr(:,:) = 0.0_dp
    endif
-   call xsum_ortho(eri_3center_lr)
+   call ortho%sum(eri_3center_lr)
    write(stdout,'(/,1x,a,/)') 'All LR 3-center integrals have been calculated and stored'
-
-   ! Include a factor 1/2 for pair containing twice the same basis function
-   do ipair=1,npair
-     ibf = index_basis(1,ipair)
-     jbf = index_basis(2,ipair)
-     if( ibf == jbf ) eri_3center_lr(ipair,:) = eri_3center_lr(ipair,:) * 0.5_dp
-   enddo
  endif
 
 
@@ -1458,8 +1471,8 @@ subroutine calculate_eri_3center_scalapack(basis,auxil_basis,rcut)
      mlocal = 0
      nlocal = 0
    endif
-   call xmax_ortho(mlocal)
-   call xmax_ortho(nlocal)
+   call ortho%max(mlocal)
+   call ortho%max(nlocal)
    call clean_allocate('3-center integrals SCALAPACK',eri_3center,mlocal,nlocal)
  else
    if( cntxt_3center > 0 ) then
@@ -1470,8 +1483,8 @@ subroutine calculate_eri_3center_scalapack(basis,auxil_basis,rcut)
      mlocal = 0
      nlocal = 0
    endif
-   call xmax_ortho(mlocal)
-   call xmax_ortho(nlocal)
+   call ortho%max(mlocal)
+   call ortho%max(nlocal)
    call clean_allocate('LR 3-center integrals SCALAPACK',eri_3center_lr,mlocal,nlocal)
  endif
 
@@ -1513,77 +1526,79 @@ subroutine calculate_eri_3center_scalapack(basis,auxil_basis,rcut)
 
      call clean_allocate('TMP 3-center integrals',eri_3center_tmp,mlocal,nlocal)
 
+     !$OMP PARALLEL PRIVATE(ami,ni,do_shell,iglobal,am1,n1c,ng1,alpha1,coeff1,x01, &
+     !$OMP&                 kshell,lshell,amk,aml,nk,nl,am3,am4,n3c,n4c,ng3,ng4,alpha3,alpha4,  &
+     !$OMP&                 coeff3,coeff4,x03,x04, &
+     !$OMP&                 int_shell,integrals,klpair_global,ilocal,jlocal)
+     !$OMP DO REDUCTION(+:libint_calls)
+     do ishell=1,auxil_basis%nshell
 
-     do klshellpair=1,nshellpair
-       kshell = index_shellpair(1,klshellpair)
-       lshell = index_shellpair(2,klshellpair)
-
-       amk = basis%shell(kshell)%am
-       aml = basis%shell(lshell)%am
-       nk = number_basis_function_am( basis%gaussian_type , amk )
-       nl = number_basis_function_am( basis%gaussian_type , aml )
-
+       ami = auxil_basis%shell(ishell)%am
+       ni = number_basis_function_am( auxil_basis%gaussian_type , ami )
 
        ! Check if this shell is actually needed for the local matrix
        do_shell = .FALSE.
-       do lbf=1,nl
-         do kbf=1,nk
-           klpair_global = index_pair(basis%shell(kshell)%istart+kbf-1,basis%shell(lshell)%istart+lbf-1)
-
-           ! Check if not present in the batch then skip it
-           if( klpair_global < ipair_first .OR. klpair_global > ipair_last ) cycle
-
-           ! Shift origin due to batches
-           klpair_global = klpair_global - ipair_first + 1
-           do_shell = do_shell .OR. ( iprow_3center == INDXG2P(klpair_global,MB_3center,0,first_row,nprow_3center) )
-         enddo
+       do ibf=1,ni
+         iglobal = auxil_basis%shell(ishell)%istart + ibf - 1
+         do_shell = do_shell .OR. ( ipcol_3center == INDXG2P(iglobal,NB_3center,0,first_col,npcol_3center) )
        enddo
 
        if( .NOT. do_shell ) cycle
 
-       am3 = amk
-       am4 = aml
-       n3c = number_basis_function_am( 'CART' , amk )
-       n4c = number_basis_function_am( 'CART' , aml )
-       ng3 = basis%shell(kshell)%ng
-       ng4 = basis%shell(lshell)%ng
-       allocate(alpha3(ng3),alpha4(ng4))
-       allocate(coeff3(ng3),coeff4(ng4))
-       alpha3(:) = basis%shell(kshell)%alpha(:)
-       alpha4(:) = basis%shell(lshell)%alpha(:)
-       coeff3(:) = basis%shell(kshell)%coeff(:)
-       coeff4(:) = basis%shell(lshell)%coeff(:)
-       x03(:) = basis%shell(kshell)%x0(:)
-       x04(:) = basis%shell(lshell)%x0(:)
+       am1 = ami
+       n1c = number_basis_function_am( 'CART' , ami )
+       ng1 = auxil_basis%shell(ishell)%ng
+       allocate(alpha1(ng1))
+       allocate(coeff1(ng1))
+       alpha1(:) = auxil_basis%shell(ishell)%alpha(:)
+       coeff1(:) = auxil_basis%shell(ishell)%coeff(:) * cart_to_pure_norm(0,agt)%matrix(1,1)
+       x01(:) = auxil_basis%shell(ishell)%x0(:)
 
-       !$OMP PARALLEL PRIVATE(ami,ni,do_shell,iglobal,am1,n1c,ng1,alpha1,coeff1,x01, &
-       !$OMP&                 int_shell,integrals,klpair_global,ilocal,jlocal)
-       !$OMP DO REDUCTION(+:libint_calls)
-       do ishell=1,auxil_basis%nshell
+       do klshellpair=1,nshellpair
+         kshell = index_shellpair(1,klshellpair)
+         lshell = index_shellpair(2,klshellpair)
 
-         ami = auxil_basis%shell(ishell)%am
-         ni = number_basis_function_am( auxil_basis%gaussian_type , ami )
+         amk = basis%shell(kshell)%am
+         aml = basis%shell(lshell)%am
+         nk = number_basis_function_am( basis%gaussian_type , amk )
+         nl = number_basis_function_am( basis%gaussian_type , aml )
+
 
          ! Check if this shell is actually needed for the local matrix
          do_shell = .FALSE.
-         do ibf=1,ni
-           iglobal = auxil_basis%shell(ishell)%istart + ibf - 1
-           do_shell = do_shell .OR. ( ipcol_3center == INDXG2P(iglobal,NB_3center,0,first_col,npcol_3center) )
+         do lbf=1,nl
+           do kbf=1,nk
+             klpair_global = index_pair(basis%shell(kshell)%istart+kbf-1,basis%shell(lshell)%istart+lbf-1)
+
+             ! Check if not present in the batch then skip it
+             if( klpair_global < ipair_first .OR. klpair_global > ipair_last ) cycle
+
+             ! Shift origin due to batches
+             klpair_global = klpair_global - ipair_first + 1
+             do_shell = do_shell .OR. ( iprow_3center == INDXG2P(klpair_global,MB_3center,0,first_row,nprow_3center) )
+           enddo
          enddo
 
          if( .NOT. do_shell ) cycle
 
+         am3 = amk
+         am4 = aml
+         n3c = number_basis_function_am( 'CART' , amk )
+         n4c = number_basis_function_am( 'CART' , aml )
+         ng3 = basis%shell(kshell)%ng
+         ng4 = basis%shell(lshell)%ng
+         allocate(alpha3(ng3),alpha4(ng4))
+         allocate(coeff3(ng3),coeff4(ng4))
+         alpha3(:) = basis%shell(kshell)%alpha(:)
+         alpha4(:) = basis%shell(lshell)%alpha(:)
+         coeff3(:) = basis%shell(kshell)%coeff(:)
+         coeff4(:) = basis%shell(lshell)%coeff(:)
+         x03(:) = basis%shell(kshell)%x0(:)
+         x04(:) = basis%shell(lshell)%x0(:)
+
+
+
          libint_calls = libint_calls + 1
-
-         am1 = ami
-         n1c = number_basis_function_am( 'CART' , ami )
-         ng1 = auxil_basis%shell(ishell)%ng
-         allocate(alpha1(ng1))
-         allocate(coeff1(ng1))
-         alpha1(:) = auxil_basis%shell(ishell)%alpha(:)
-         coeff1(:) = auxil_basis%shell(ishell)%coeff(:) * cart_to_pure_norm(0,agt)%matrix(1,1)
-         x01(:) = auxil_basis%shell(ishell)%x0(:)
-
 
          allocate(int_shell(n1c*n3c*n4c))
 
@@ -1620,16 +1635,17 @@ subroutine calculate_eri_3center_scalapack(basis,auxil_basis,rcut)
 
          deallocate(integrals)
          deallocate(int_shell)
-         deallocate(alpha1,coeff1)
 
-       enddo ! ishell
-       !$OMP END DO
-       !$OMP END PARALLEL
 
-       deallocate(alpha3,alpha4)
-       deallocate(coeff3,coeff4)
+         deallocate(alpha3,alpha4)
+         deallocate(coeff3,coeff4)
 
-     enddo ! klshellpair
+       enddo ! klshellpair
+       deallocate(alpha1,coeff1)
+
+     enddo ! ishell
+     !$OMP END DO
+     !$OMP END PARALLEL
 
    endif
 
@@ -1681,7 +1697,7 @@ subroutine calculate_eri_3center_scalapack(basis,auxil_basis,rcut)
 
 
  write(stdout,'(1x,a,i20)')      'Number of calls to libint of this proc: ',libint_calls
- call xsum_world(libint_calls)
+ call world%sum(libint_calls)
  write(stdout,'(1x,a,7x,i20)')   'Total number of calls to libint: ',libint_calls
  write(stdout,'(1x,a,f8.2)')  'Redundant calls due to parallelization and batches (%): ', &
                                  ( REAL(libint_calls,dp) / ( REAL(nshellpair,dp)*REAL(auxil_basis%nshell,dp) ) - 1.0_dp ) * 100.0_dp
@@ -1693,9 +1709,10 @@ subroutine calculate_eri_3center_scalapack(basis,auxil_basis,rcut)
    if( cntxt_3center < 0 ) then
      eri_3center(:,:) = 0.0_dp
    endif
-   call xsum_ortho(eri_3center)
+   call ortho%sum(eri_3center)
    write(stdout,'(/,1x,a,/)') 'All 3-center integrals have been calculated and stored'
 
+   ! By convention, eri_3center contains 1/2 (alpha beta | P ) when alpha = beta
    ! Include a factor 1/2 for pair containing twice the same basis function
    do ipair=1,npair
      ibf = index_basis(1,ipair)
@@ -1708,9 +1725,10 @@ subroutine calculate_eri_3center_scalapack(basis,auxil_basis,rcut)
    if( cntxt_3center < 0 ) then
      eri_3center_lr(:,:) = 0.0_dp
    endif
-   call xsum_ortho(eri_3center_lr)
+   call ortho%sum(eri_3center_lr)
    write(stdout,'(/,1x,a,/)') 'All LR 3-center integrals have been calculated and stored'
 
+   ! By convention, eri_3center contains 1/2 (alpha beta | P ) when alpha = beta
    ! Include a factor 1/2 for pair containing twice the same basis function
    do ipair=1,npair
      ibf = index_basis(1,ipair)
