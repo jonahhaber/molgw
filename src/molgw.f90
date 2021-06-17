@@ -81,6 +81,9 @@ program molgw
   real(dp),allocatable    :: energy(:,:)
   real(dp),allocatable    :: occupation(:,:)
   real(dp),allocatable    :: exchange_m_vxc(:,:,:)
+! JBH : Begin
+  real(dp), allocatable   :: exchange(:,:,:)
+! JBH : End
   !=====
 
   !
@@ -108,14 +111,12 @@ program molgw
   !
   ! Reading input file: the input parameters are stored in the module m_inputparam
   call read_inputfile_namelist()
-
   ! Finalize the MPI initialization
   call init_mpi_other_communicators(mpi_nproc_ortho)
 
   !
   ! Build all the Cartesian to Pure Gaussian transforms
   call setup_cart_to_pure_transforms()
-
 
   !
   ! Prepare relaxation with LBFGS
@@ -493,8 +494,11 @@ program molgw
   ! Prepare the diagonal of the matrix Sigma_x - Vxc
   ! for the forthcoming GW or PT corrections
   if( calc_type%selfenergy_approx > 0 .AND. calc_type%selfenergy_technique /= QS ) then
-    call clean_allocate('Sigx - Vxc',exchange_m_vxc,nstate,nstate,nspin)
-    call setup_exchange_m_vxc(basis,occupation,energy,c_matrix,hamiltonian_fock,exchange_m_vxc)
+    call clean_allocate('SigX - Vxc',exchange_m_vxc,nstate,nstate,nspin)
+  ! JBH : Begin
+    call clean_allocate('SigX',exchange,nstate,nstate,nspin)
+  ! JBH : End
+    call setup_exchange_m_vxc(basis,occupation,energy,c_matrix,hamiltonian_fock,exchange_m_vxc,exchange)
   endif
   call clean_deallocate('Fock operator F',hamiltonian_fock)
 
@@ -602,7 +606,7 @@ program molgw
   ! (only if the SCF cycles were converged)
   if( calc_type%selfenergy_approx > 0 .AND. calc_type%selfenergy_technique /= QS .AND. is_converged ) then
     en_mbpt = en_gks
-    call selfenergy_evaluation(basis,auxil_basis,occupation,energy,c_matrix,exchange_m_vxc,en_mbpt)
+    call selfenergy_evaluation(basis,auxil_basis,occupation,energy,c_matrix,exchange_m_vxc,exchange,en_mbpt)
     call print_energy_yaml('mbpt energy',en_mbpt)
     call clean_deallocate('Sigx - Vxc',exchange_m_vxc)
   endif

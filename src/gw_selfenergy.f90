@@ -65,6 +65,8 @@ subroutine gw_selfenergy(selfenergy_approx,nstate,basis,occupation,energy,c_matr
 
  energy_gw = 0.0_dp
  se%sigma(:,:,:) = 0.0_dp
+ se%sigma_x_m_sex(:,:,:) = 0.0_dp 
+ se%sigma_coh(:,:,:) = 0.0_dp 
 
  do ispin=1,nspin
    do istate=ncore_G+1,nvirtual_G-1 !INNER LOOP of G
@@ -135,6 +137,10 @@ subroutine gw_selfenergy(selfenergy_approx,nstate,basis,occupation,energy,c_matr
            !
            ! SEX
            !
+           se%sigma_x_m_sex(0,pstate,ispin) = se%sigma_x_m_sex(0,pstate,ispin) &
+                      + bra(ipole,pstate) * bra(ipole,pstate) &
+                            * fact_full_i / wpol%pole(ipole) * 2.0_dp
+
            se%sigma(0,pstate,ispin) = se%sigma(0,pstate,ispin) &
                       + bra(ipole,pstate) * bra(ipole,pstate) &
                             * fact_full_i / wpol%pole(ipole) * 2.0_dp
@@ -142,6 +148,10 @@ subroutine gw_selfenergy(selfenergy_approx,nstate,basis,occupation,energy,c_matr
            !
            ! COH
            !
+           se%sigma_coh(0,pstate,ispin) = se%sigma_coh(0,pstate,ispin) &
+                            - bra(ipole,pstate) * bra(ipole,pstate) &
+                                  / wpol%pole(ipole)
+
            se%sigma(0,pstate,ispin) = se%sigma(0,pstate,ispin) &
                       - bra(ipole,pstate) * bra(ipole,pstate) &
                             / wpol%pole(ipole)
@@ -160,6 +170,8 @@ subroutine gw_selfenergy(selfenergy_approx,nstate,basis,occupation,energy,c_matr
 
  ! Sum up the contribution from different poles (= different procs)
  call xsum_world(se%sigma)
+ call xsum_world(se%sigma_x_m_sex)
+ call xsum_world(se%sigma_coh)
  call xsum_world(energy_gw)
 
 

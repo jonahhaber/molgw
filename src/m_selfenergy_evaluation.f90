@@ -29,7 +29,8 @@ contains
 
 
 !=========================================================================
-subroutine selfenergy_evaluation(basis,auxil_basis,occupation,energy,c_matrix,exchange_m_vxc,en_mbpt)
+! JBH added exchnage field
+subroutine selfenergy_evaluation(basis,auxil_basis,occupation,energy,c_matrix,exchange_m_vxc,exchange,en_mbpt)
  implicit none
 
  type(basis_set),intent(in) :: basis
@@ -38,6 +39,9 @@ subroutine selfenergy_evaluation(basis,auxil_basis,occupation,energy,c_matrix,ex
  real(dp),intent(inout)     :: energy(:,:)
  real(dp),intent(inout)     :: c_matrix(:,:,:)
  real(dp),intent(in)        :: exchange_m_vxc(:,:,:)
+! JBH : Begin
+ real(dp), intent(in)       :: exchange(:,:,:)
+! JBH : End
  type(energy_contributions),intent(inout) :: en_mbpt
 !=====
  integer                 :: nstate
@@ -170,8 +174,12 @@ subroutine selfenergy_evaluation(basis,auxil_basis,occupation,energy,c_matrix,ex
 
 
    call init_selfenergy_grid(calc_type%selfenergy_technique,energy_g,se)
-
-
+   ! JBH : Begin
+   allocate(se%sigma_x(nstate,nspin))
+   do pstate=1,nstate
+      se%sigma_x(pstate,:) = exchange(pstate,pstate,:)
+   enddo
+   ! JBH : End
    !
    ! selfenergy = GW or COHSEX
    !

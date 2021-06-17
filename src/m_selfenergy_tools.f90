@@ -45,6 +45,9 @@ module m_selfenergy_tools
    real(dp),allocatable    :: energy0(:,:)
    complex(dp),allocatable :: sigma(:,:,:)
    complex(dp),allocatable :: sigmai(:,:,:)
+   real(dp),allocatable   :: sigma_x(:,:) ! X
+   complex(dp),allocatable :: sigma_x_m_sex(:,:,:) ! SX-X
+   complex(dp),allocatable :: sigma_coh(:,:,:) ! COH
  end type
 
 
@@ -408,7 +411,7 @@ subroutine output_qp_energy(calcname,energy0,exchange_m_vxc,ncomponent,se,energy
  if( PRESENT(zz) .AND. PRESENT(energy2) ) then
 
    if(nspin==1) then
-     write(stdout,'(3x,a,8x,a,9x,a,7x,a,10x,a,8x,a,5x,a)') '#','E0','SigX-Vxc',TRIM(sigc_label),'Z','E_qp^lin','E_qp^graph'
+     write(stdout,'(3x,a,8x,a,9x,a,7x,a,10x,a,10xa,10x,a,10x,a,8x,a,5x,a)') '#','E0','SigX-Vxc',TRIM(sigc_label),'X','SX-X','COH','Z','E_qp^lin','E_qp^graph'
    else
      write(stdout,'(3x,a,15x,a,22x,a,19x,a,24x,a,21x,a,17x,a)') '#','E0','SigX-Vxc',TRIM(sigc_label),'Z','E_qp^lin','E_qp^graph'
      write(stdout,'(12x,14(a4,9x))') (' up ','down',ii=1,5+ncomponent)
@@ -419,6 +422,9 @@ subroutine output_qp_energy(calcname,energy0,exchange_m_vxc,ncomponent,se,energy
      write(stdout,'(i4,1x,20(1x,f12.6))') pstate,energy0(pstate,:)*Ha_eV,  &
                                           exchange_m_vxc(pstate,:)*Ha_eV,  &
                                           REAL(se%sigma(0,pstate,:)*Ha_eV,dp),  &
+                                          REAL(se%sigma_x(pstate,:)*Ha_eV,dp), &
+                                          REAL(se%sigma_x_m_sex(0,pstate,:)*Ha_eV,dp),  &
+                                          REAL(se%sigma_coh(0,pstate,:)*Ha_eV,dp),  &
                                           zz(pstate,:),                    &
                                           energy1(pstate,:)*Ha_eV,         &
                                           energy2(pstate,:)*Ha_eV
@@ -593,6 +599,9 @@ subroutine init_selfenergy_grid(selfenergy_technique,energy0,se)
  !
  ! Set the central point of the grid
  allocate(se%sigma(-se%nomega:se%nomega,nsemin:nsemax,nspin))
+ !allocate(se%sigma_x(nsemin:nsemax,nspin))
+ allocate(se%sigma_x_m_sex(-se%nomega:se%nomega,nsemin:nsemax,nspin))
+ allocate(se%sigma_coh(-se%nomega:se%nomega,nsemin:nsemax,nspin))
  select case(selfenergy_technique)
  case(imaginary_axis_pade,imaginary_axis_integral)
    allocate(se%sigmai(-se%nomegai:se%nomegai,nsemin:nsemax,nspin))
@@ -620,7 +629,7 @@ end subroutine destroy_selfenergy_grid
 
 
 !=========================================================================
-subroutine setup_exchange_m_vxc(basis,occupation,energy,c_matrix,hamiltonian_fock,exchange_m_vxc)
+subroutine setup_exchange_m_vxc(basis,occupation,energy,c_matrix,hamiltonian_fock,exchange_m_vxc,exchange)
  implicit none
 
  type(basis_set),intent(in) :: basis
@@ -629,13 +638,16 @@ subroutine setup_exchange_m_vxc(basis,occupation,energy,c_matrix,hamiltonian_foc
  real(dp),intent(in)        :: c_matrix(:,:,:)
  real(dp),intent(in)        :: hamiltonian_fock(:,:,:)
  real(dp),intent(out)       :: exchange_m_vxc(:,:,:)
+! Begin: JBH
+ real(dp),intent(out), optional      :: exchange(:,:,:)
+! End: JBH
 !=====
  integer              :: nstate
  integer              :: ispin,pstate
  real(dp)             :: exc
  real(dp),allocatable :: occupation_tmp(:,:)
  real(dp),allocatable :: p_matrix_tmp(:,:,:)
- real(dp),allocatable :: hxc_val(:,:,:),hexx_val(:,:,:),hxmxc(:,:,:)
+ real(dp),allocatable :: hxc_val(:,:,:),hexx_val(:,:,:),hxmxc(:,:,:), hexx(:,:,:)
 !=====
 
  call start_clock(timing_x_m_vxc)
@@ -682,6 +694,10 @@ subroutine setup_exchange_m_vxc(basis,occupation,energy,c_matrix,hamiltonian_foc
    ! for the forthcoming GW corrections
    !
    call matrix_ao_to_mo(c_matrix,hxmxc,exchange_m_vxc)
+   !
+   ! JBH: lets try to compute just the exact exchange term
+   !
+   call matrix_ao_to_mo(c_matrix,hexx_val,exchange)
 
    deallocate(hxc_val,hexx_val,hxmxc)
 
@@ -698,6 +714,20 @@ subroutine setup_exchange_m_vxc(basis,occupation,energy,c_matrix,hamiltonian_foc
        exchange_m_vxc(pstate,pstate,ispin) = exchange_m_vxc(pstate,pstate,ispin) - energy(pstate,ispin)
      enddo
    enddo
+
+   ! Begin: JBH, try to just compute exchange
+   allocate(hexx(basis%nbf,basis%nbf,nspin))
+   allocate(p_matrix_tmp(basis%nbf,basis%nbf,nspin))
+   call setup_density_matrix(c_matrix,occupation,p_matrix_tmp)
+   call calculate_exchange(basis,p_matrix_tmp,hexx)
+   call matrix_ao_to_mo(c_matrix,hexx,exchange)
+   do ispin=1,nspin
+    do pstate=1,nstate
+      print *, exchange(pstate,pstate,ispin) 
+    enddo
+   enddo
+   deallocate(hexx, p_matrix_tmp)
+   ! End: JBH
 
  endif
 
